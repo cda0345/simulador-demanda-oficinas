@@ -124,10 +124,12 @@ todas_zonas = oficinas_df["zona"].unique().tolist()
 todos_bairros = oficinas_df["bairro"].unique().tolist()
 
 # Filtro por Segmento
+todos_segmentos = sorted(clientes_df["segmento"].unique().tolist())
+selecionar_todos_segmentos = st.sidebar.checkbox("Selecionar todos os segmentos", key="chk_todos_segmentos")
 segmentos_selecionados = st.sidebar.multiselect(
     "Segmentos",
-    options=sorted(clientes_df["segmento"].unique().tolist()),
-    default=[]
+    options=todos_segmentos,
+    default=todos_segmentos if selecionar_todos_segmentos else []
 )
 
 # Aplicar filtros de forma independente
@@ -138,10 +140,12 @@ if segmentos_selecionados:
     oficinas_por_segmento = oficinas_df[oficinas_df["segmento"].apply(lambda x: any(item in x.split("_") for item in segmentos_selecionados))]
 
 # Filtro por Zona - mantém todas as zonas disponíveis independente do segmento
+todas_zonas_sorted = sorted(todas_zonas)
+selecionar_todas_zonas = st.sidebar.checkbox("Selecionar todas as zonas", key="chk_todas_zonas")
 zona_selecionada = st.sidebar.multiselect(
     "Zonas",
-    options=sorted(todas_zonas),
-    default=[]
+    options=todas_zonas_sorted,
+    default=todas_zonas_sorted if selecionar_todas_zonas else []
 )
 
 clientes_por_zona = clientes_por_segmento
@@ -151,10 +155,12 @@ if zona_selecionada:
     oficinas_por_zona = oficinas_por_segmento[oficinas_por_segmento["zona"].isin(zona_selecionada)]
 
 # Filtro por Bairro - mantém todos os bairros disponíveis independente da zona
+todos_bairros_sorted = sorted(todos_bairros)
+selecionar_todos_bairros = st.sidebar.checkbox("Selecionar todos os bairros", key="chk_todos_bairros")
 bairros_selecionados = st.sidebar.multiselect(
     "Bairros",
-    options=sorted(todos_bairros),
-    default=[]
+    options=todos_bairros_sorted,
+    default=todos_bairros_sorted if selecionar_todos_bairros else []
 )
 
 clientes_filtrados = clientes_por_zona
@@ -162,6 +168,33 @@ oficinas_filtradas = oficinas_por_zona
 if bairros_selecionados:
     clientes_filtrados = clientes_por_zona[clientes_por_zona["bairro"].isin(bairros_selecionados)]
     oficinas_filtradas = oficinas_por_zona[oficinas_por_zona["bairro"].isin(bairros_selecionados)]
+
+# Filtro por Categoria de Serviço (Nível 1)
+categorias_servico = sorted(clientes_df["nivel_1_servico"].unique().tolist())
+selecionar_todas_categorias = st.sidebar.checkbox("Selecionar todas as categorias", key="chk_todas_categorias")
+categorias_selecionadas = st.sidebar.multiselect(
+    "Categorias de Serviço",
+    options=categorias_servico,
+    default=categorias_servico if selecionar_todas_categorias else []
+)
+
+if categorias_selecionadas:
+    clientes_filtrados = clientes_filtrados[clientes_filtrados["nivel_1_servico"].isin(categorias_selecionadas)]
+    oficinas_filtradas = oficinas_filtradas[oficinas_filtradas["categoria_servico"].isin(categorias_selecionadas)]
+
+# Filtro por Serviço Específico (Nível 2)
+servicos_nivel2 = sorted(clientes_df["nivel_2_servico"].unique().tolist())
+selecionar_todos_servicos = st.sidebar.checkbox("Selecionar todos os serviços", key="chk_todos_servicos")
+servicos_nivel2_selecionados = st.sidebar.multiselect(
+    "Serviços Específicos",
+    options=servicos_nivel2,
+    default=servicos_nivel2 if selecionar_todos_servicos else []
+)
+
+if servicos_nivel2_selecionados:
+    clientes_filtrados = clientes_filtrados[clientes_filtrados["nivel_2_servico"].isin(servicos_nivel2_selecionados)]
+    oficinas_filtradas = oficinas_filtradas[oficinas_filtradas["servico_nivel2"].isin(servicos_nivel2_selecionados)]
+
 # Seleção de oficinas principais
 oficinas_principais_nomes = st.sidebar.multiselect(
     "Selecione as oficinas principais",
@@ -434,15 +467,16 @@ if not clientes_filtrados.empty:
             icon=folium.Icon(color="green", icon="wrench", prefix="fa")
         ).add_to(mapa)
         
-        # Adicionar círculo com raio selecionado
-        folium.Circle(
+        # Adicionar círculo com raio selecionado usando vector layers para melhor precisão
+        folium.vector_layers.Circle(
             location=[oficina["latitude"], oficina["longitude"]],
             radius=raio_busca * 1000,  # Converter km para metros
             color="green",
             fill=True,
             fillColor="green",
             fillOpacity=0.1,
-            popup=f"Raio de {raio_busca} km"
+            popup=f"Raio de {raio_busca} km",
+            weight=2,  # Espessura da linha
         ).add_to(mapa)
 
     # Adicionar marcadores para concorrentes no raio com cores diferenciadas
