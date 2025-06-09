@@ -132,14 +132,16 @@ segmentos_selecionados = st.sidebar.multiselect(
     default=todos_segmentos if selecionar_todos_segmentos else []
 )
 
-# Aplicar filtros de forma independente
-clientes_por_segmento = clientes_df
-oficinas_por_segmento = oficinas_df
-if segmentos_selecionados:
-    clientes_por_segmento = clientes_df[clientes_df["segmento"].isin(segmentos_selecionados)]
-    oficinas_por_segmento = oficinas_df[oficinas_df["segmento"].apply(lambda x: any(item in x.split("_") for item in segmentos_selecionados))]
+# Aplicar filtros mantendo as opções disponíveis
+clientes_filtrados_temp = clientes_df
+oficinas_filtradas_temp = oficinas_df
 
-# Filtro por Zona - mantém todas as zonas disponíveis independente do segmento
+# Filtro por segmento
+if segmentos_selecionados:
+    clientes_filtrados_temp = clientes_filtrados_temp[clientes_filtrados_temp["segmento"].isin(segmentos_selecionados)]
+    oficinas_filtradas_temp = oficinas_df[oficinas_df["segmento"].apply(lambda x: any(item in x.split("_") for item in segmentos_selecionados))]
+
+# Filtro por Zona
 todas_zonas_sorted = sorted(todas_zonas)
 selecionar_todas_zonas = st.sidebar.checkbox("Selecionar todas as zonas", key="chk_todas_zonas")
 zona_selecionada = st.sidebar.multiselect(
@@ -148,26 +150,28 @@ zona_selecionada = st.sidebar.multiselect(
     default=todas_zonas_sorted if selecionar_todas_zonas else []
 )
 
-clientes_por_zona = clientes_por_segmento
-oficinas_por_zona = oficinas_por_segmento
 if zona_selecionada:
-    clientes_por_zona = clientes_por_segmento[clientes_por_segmento["zona"].isin(zona_selecionada)]
-    oficinas_por_zona = oficinas_por_segmento[oficinas_por_segmento["zona"].isin(zona_selecionada)]
+    clientes_filtrados_temp = clientes_filtrados_temp[clientes_filtrados_temp["zona"].isin(zona_selecionada)]
+    oficinas_filtradas_temp = oficinas_filtradas_temp[oficinas_filtradas_temp["zona"].isin(zona_selecionada)]
 
-# Filtro por Bairro - mantém todos os bairros disponíveis independente da zona
-todos_bairros_sorted = sorted(todos_bairros)
+clientes_por_zona = clientes_filtrados_temp
+oficinas_por_zona = oficinas_filtradas_temp
+
+# Filtro por Bairro - mantendo opções disponíveis
+bairros_disponiveis = sorted(clientes_filtrados_temp["bairro"].unique().tolist())
 selecionar_todos_bairros = st.sidebar.checkbox("Selecionar todos os bairros", key="chk_todos_bairros")
 bairros_selecionados = st.sidebar.multiselect(
     "Bairros",
-    options=todos_bairros_sorted,
-    default=todos_bairros_sorted if selecionar_todos_bairros else []
+    options=bairros_disponiveis,
+    default=bairros_disponiveis if selecionar_todos_bairros else []
 )
 
-clientes_filtrados = clientes_por_zona
-oficinas_filtradas = oficinas_por_zona
 if bairros_selecionados:
-    clientes_filtrados = clientes_por_zona[clientes_por_zona["bairro"].isin(bairros_selecionados)]
-    oficinas_filtradas = oficinas_por_zona[oficinas_por_zona["bairro"].isin(bairros_selecionados)]
+    clientes_filtrados_temp = clientes_filtrados_temp[clientes_filtrados_temp["bairro"].isin(bairros_selecionados)]
+    oficinas_filtradas_temp = oficinas_filtradas_temp[oficinas_filtradas_temp["bairro"].isin(bairros_selecionados)]
+
+clientes_filtrados = clientes_filtrados_temp
+oficinas_filtradas = oficinas_filtradas_temp
 
 # Filtro por Categoria de Serviço (Nível 1)
 categorias_servico = sorted(clientes_df["nivel_1_servico"].unique().tolist())
@@ -195,13 +199,18 @@ if servicos_nivel2_selecionados:
     clientes_filtrados = clientes_filtrados[clientes_filtrados["nivel_2_servico"].isin(servicos_nivel2_selecionados)]
     oficinas_filtradas = oficinas_filtradas[oficinas_filtradas["servico_nivel2"].isin(servicos_nivel2_selecionados)]
 
-# Seleção de oficinas principais
+# Seleção de oficinas principais - usando todas as oficinas disponíveis
 oficinas_principais_nomes = st.sidebar.multiselect(
     "Selecione as oficinas principais",
-    options=oficinas_filtradas["nome_oficina"].unique().tolist()
+    options=oficinas_df["nome_oficina"].unique().tolist()
 )
 
-oficinas_principais_df = oficinas_filtradas[oficinas_filtradas["nome_oficina"].isin(oficinas_principais_nomes)]
+# Filtra as oficinas principais baseado nos critérios selecionados
+if oficinas_principais_nomes:
+    # Primeiro seleciona as oficinas pelos nomes, sem aplicar outros filtros
+    oficinas_principais_df = oficinas_df[oficinas_df["nome_oficina"].isin(oficinas_principais_nomes)].copy()
+else:
+    oficinas_principais_df = pd.DataFrame()
 
 # Raio de busca com incremento de 0,5 km
 raio_busca = st.sidebar.slider("Raio de busca (km)", 1.0, 20.0, 5.0, step=0.5)
@@ -430,58 +439,77 @@ if not oficinas_principais_df.empty:
 # Visualização no mapa
 st.header("Visualização no Mapa")
 
-if not clientes_filtrados.empty:
-    # Criar mapa base
-    mapa = folium.Map(location=[-23.5505, -46.6333], zoom_start=10)
+# Criar mapa base com zoom adequado
+if not oficinas_principais_df.empty:
+    # Calcular o centro do mapa baseado nas oficinas selecionadas
+    centro_lat = oficinas_principais_df['latitude'].mean()
+    centro_lon = oficinas_principais_df['longitude'].mean()
+    zoom_inicial = 12  # Zoom mais próximo para melhor visualização
+else:
+    # Centro padrão em São Paulo
+    centro_lat = -23.5505
+    centro_lon = -46.6333
+    zoom_inicial = 10
 
-    # Adicionar heatmap para clientes Meoo com raio adaptativo
-    if "Meoo" in segmentos_selecionados and not clientes_filtrados[clientes_filtrados["segmento"] == "Meoo"].empty:
-        heatmap_meoo_data = clientes_filtrados[clientes_filtrados["segmento"] == "Meoo"][["latitude", "longitude"]].values.tolist()
-        folium.plugins.HeatMap(
-            heatmap_meoo_data,
-            gradient={0.4: "blue", 0.65: "lime", 1: "red"},
-            min_opacity=0.3,
-            radius=15,  # Raio menor para melhor visualização em diferentes níveis de zoom
-            blur=15,    # Suavização do heatmap
-            max_zoom=16 # Nível máximo de zoom onde o heatmap será mostrado
-        ).add_to(mapa)
+# Criar mapa
+mapa = folium.Map(location=[centro_lat, centro_lon], zoom_start=zoom_inicial)
 
-    # Adicionar heatmap para clientes GF com raio adaptativo
-    if "GF" in segmentos_selecionados and not clientes_filtrados[clientes_filtrados["segmento"] == "GF"].empty:
-        heatmap_gf_data = clientes_filtrados[clientes_filtrados["segmento"] == "GF"][["latitude", "longitude"]].values.tolist()
-        folium.plugins.HeatMap(
-            heatmap_gf_data,
-            gradient={0.4: "green", 0.65: "yellow", 1: "orange"},
-            min_opacity=0.3,
-            radius=15,  # Raio menor para melhor visualização em diferentes níveis de zoom
-            blur=15,    # Suavização do heatmap
-            max_zoom=16 # Nível máximo de zoom onde o heatmap será mostrado
-        ).add_to(mapa)
-
-    # Adicionar marcadores e círculos para oficinas principais
-    for index, oficina in oficinas_principais_df.iterrows():
+# Adicionar marcadores para oficinas principais primeiro
+if not oficinas_principais_df.empty:
+    for _, oficina in oficinas_principais_df.iterrows():
         # Adicionar marcador
         folium.Marker(
-            location=[oficina["latitude"], oficina["longitude"]],
+            location=[float(oficina["latitude"]), float(oficina["longitude"])],
             popup=f'Oficina Principal: {oficina["nome_oficina"]}',
             icon=folium.Icon(color="green", icon="wrench", prefix="fa")
         ).add_to(mapa)
         
-        # Adicionar círculo com raio selecionado usando vector layers para melhor precisão
-        folium.vector_layers.Circle(
-            location=[oficina["latitude"], oficina["longitude"]],
+        # Adicionar círculo de raio
+        folium.Circle(
+            location=[float(oficina["latitude"]), float(oficina["longitude"])],
             radius=raio_busca * 1000,  # Converter km para metros
             color="green",
             fill=True,
             fillColor="green",
             fillOpacity=0.1,
             popup=f"Raio de {raio_busca} km",
-            weight=2,  # Espessura da linha
+            weight=2
         ).add_to(mapa)
 
-    # Adicionar marcadores para concorrentes no raio com cores diferenciadas
+# Adicionar heatmaps depois dos marcadores principais
+if not clientes_filtrados.empty:
+    # Heatmap para clientes Meoo
+    if "Meoo" in segmentos_selecionados:
+        meoo_clients = clientes_filtrados[clientes_filtrados["segmento"] == "Meoo"]
+        if not meoo_clients.empty:
+            heatmap_meoo_data = meoo_clients[["latitude", "longitude"]].values.tolist()
+            folium.plugins.HeatMap(
+                heatmap_meoo_data,
+                gradient={0.4: "blue", 0.65: "lime", 1: "red"},
+                min_opacity=0.3,
+                radius=15,
+                blur=15,
+                max_zoom=16
+            ).add_to(mapa)
+
+    # Heatmap para clientes GF
+    if "GF" in segmentos_selecionados:
+        gf_clients = clientes_filtrados[clientes_filtrados["segmento"] == "GF"]
+        if not gf_clients.empty:
+            heatmap_gf_data = gf_clients[["latitude", "longitude"]].values.tolist()
+            folium.plugins.HeatMap(
+                heatmap_gf_data,
+                gradient={0.4: "green", 0.65: "yellow", 1: "orange"},
+                min_opacity=0.3,
+                radius=15,
+                blur=15,
+                max_zoom=16
+            ).add_to(mapa)
+
+# Adicionar marcadores para concorrentes por último
+if not oficinas_principais_df.empty and not concorrentes_no_raio.empty:
     concorrentes_ativos_nomes = [c["nome_oficina"] for c in concorrentes_ativos] if concorrentes_ativos else []
-    for index, concorrente in concorrentes_no_raio.iterrows():
+    for idx, concorrente in concorrentes_no_raio.iterrows():
         nome = concorrente["nome_oficina"]
         cor = "blue" if nome in concorrentes_ativos_nomes else "lightgray"
         folium.Marker(
@@ -490,10 +518,8 @@ if not clientes_filtrados.empty:
             icon=folium.Icon(color=cor, icon="wrench", prefix="fa")
         ).add_to(mapa)
 
-    # Exibir mapa
-    st_folium(mapa, width=700, height=500)
-else:
-    st.info("Nenhum cliente encontrado com os filtros selecionados para exibir no mapa.")
+# Sempre exibir o mapa com dimensões adequadas
+st_map = st_folium(mapa, width=800, height=600)
 
 # Análise dos clientes atendidos pelos concorrentes
 if len(concorrentes_ativos) > 0:
